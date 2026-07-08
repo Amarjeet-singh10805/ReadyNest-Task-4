@@ -19,17 +19,16 @@ import { getSocket } from '@/lib/socket';
 import { toast } from '@/hooks/use-toast';
 import { ActiveUser, CursorUpdate, DocumentUpdate } from '@/types';
 
-
-const AUTOSAVE_DELAY = 2000; // 2s debounce
-const VERSION_INTERVAL = 60000; // create version every 60s of edits
+const AUTOSAVE_DELAY = 2000;
+const VERSION_INTERVAL = 60000;
 
 export function DocumentEditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const {
-    currentDocument, setCurrentDocument, updateDocument,
-    setActiveUsers, updateCursor, removeCursor, documentVersion, setDocumentVersion
+    currentWorkspace, currentDocument, setCurrentDocument, updateDocument,
+    setActiveUsers, updateCursor, removeCursor, setDocumentVersion
   } = useWorkspaceStore();
 
   const [title, setTitle] = useState('');
@@ -47,6 +46,10 @@ export function DocumentEditorPage() {
   const versionTimer = useRef<ReturnType<typeof setInterval>>();
   const localVersion = useRef(0);
   const isReceivingRemote = useRef(false);
+
+  // Derive role-based permissions
+  const userRole = currentWorkspace?.members.find((m) => m.userId === user?.id)?.role;
+  const canEdit = userRole === 'OWNER' || userRole === 'EDITOR';
 
   // Load document
   useEffect(() => {
@@ -96,16 +99,17 @@ export function DocumentEditorPage() {
     socket.on('document:conflict', (data: { documentId: string; serverContent: string; serverVersion: number }) => {
       if (data.documentId !== id) return;
       setRemoteConflict(true);
-      // Auto-resolve: accept server version
       setContent(data.serverContent);
       localVersion.current = data.serverVersion;
       toast({ title: 'Conflict resolved', description: 'Document synced with latest version' });
     });
 
-    // Start version auto-save timer
-    versionTimer.current = setInterval(() => {
-      socket.emit('version:create', { documentId: id, workspaceId });
-    }, VERSION_INTERVAL);
+    // Only start autosave version timer for editors/owners
+    if (canEdit) {
+      versionTimer.current = setInterval(() => {
+        socket.emit('version:create', { documentId: id, workspaceId });
+      }, VERSION_INTERVAL);
+    }
 
     return () => {
       socket.emit('workspace:leave', workspaceId);
@@ -128,7 +132,7 @@ export function DocumentEditorPage() {
     const throttle = { last: 0 };
     const handler = (e: MouseEvent) => {
       const now = Date.now();
-      if (now - throttle.last < 50) return; // 20fps
+      if (now - throttle.last < 50) return;
       throttle.last = now;
       socket.emit('cursor:move', {
         workspaceId: currentDocument.workspaceId,
@@ -142,9 +146,9 @@ export function DocumentEditorPage() {
     return () => window.removeEventListener('mousemove', handler);
   }, [currentDocument, id]);
 
-  // Content change handler with debounced autosave + socket broadcast
+  // Content change handler — only fires if canEdit
   const handleContentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isReceivingRemote.current) return;
+    if (!canEdit || isReceivingRemote.current) return;
     const newContent = e.target.value;
     setContent(newContent);
     setSaveStatus('unsaved');
@@ -158,7 +162,6 @@ export function DocumentEditorPage() {
         const newVersion = localVersion.current + 1;
         localVersion.current = newVersion;
 
-        // Broadcast via socket
         if (socket && currentDocument) {
           socket.emit('document:operation', {
             documentId: id,
@@ -169,7 +172,6 @@ export function DocumentEditorPage() {
           });
         }
 
-        // Also persist via REST
         const { data } = await api.patch(`/documents/${id}`, { content: newContent });
         updateDocument(data);
         setSaveStatus('saved');
@@ -177,11 +179,11 @@ export function DocumentEditorPage() {
         setSaveStatus('unsaved');
       }
     }, AUTOSAVE_DELAY);
-  }, [id, currentDocument]);
+  }, [id, currentDocument, canEdit]);
 
-  // Title save
+  // Title save — only for editors/owners
   const handleTitleBlur = async () => {
-    if (!title.trim() || title === currentDocument?.title) return;
+    if (!canEdit || !title.trim() || title === currentDocument?.title) return;
     try {
       const { data } = await api.patch(`/documents/${id}`, { title: title.trim() });
       updateDocument(data);
@@ -191,8 +193,9 @@ export function DocumentEditorPage() {
     }
   };
 
-  // Manual save
+  // Manual save — only for editors/owners
   const handleManualSave = async () => {
+    if (!canEdit) return;
     setSaving(true);
     try {
       const { data } = await api.patch(`/documents/${id}`, { content, title });
@@ -229,23 +232,30 @@ export function DocumentEditorPage() {
             </Button>
             <Input
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => canEdit && setTitle(e.target.value)}
               onBlur={handleTitleBlur}
-              className="h-8 border-none bg-transparent text-base font-semibold shadow-none focus-visible:ring-0 px-0 max-w-xs"
+              readOnly={!canEdit}
+              className="h-8 border-none bg-transparent text-base font-semibold shadow-none focus-visible:ring-0 px-0 max-w-xs read-only:cursor-default"
               placeholder="Untitled"
             />
-            {/* Save status */}
-            <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-              {saveStatus === 'saving' && (
-                <><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>
-              )}
-              {saveStatus === 'saved' && (
-                <><CheckCircle2 className="h-3 w-3 text-green-500" /> Saved</>
-              )}
-              {saveStatus === 'unsaved' && (
-                <><AlertCircle className="h-3 w-3 text-yellow-500" /> Unsaved</>
-              )}
-            </div>
+            {/* Save status — only shown to editors */}
+            {canEdit && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                {saveStatus === 'saving' && (
+                  <><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>
+                )}
+                {saveStatus === 'saved' && (
+                  <><CheckCircle2 className="h-3 w-3 text-green-500" /> Saved</>
+                )}
+                {saveStatus === 'unsaved' && (
+                  <><AlertCircle className="h-3 w-3 text-yellow-500" /> Unsaved</>
+                )}
+              </div>
+            )}
+            {/* Viewer badge */}
+            {!canEdit && (
+              <Badge variant="secondary" className="text-[10px] h-5 shrink-0">View only</Badge>
+            )}
             {remoteConflict && (
               <Badge variant="secondary" className="text-[10px] h-5">Synced</Badge>
             )}
@@ -267,10 +277,13 @@ export function DocumentEditorPage() {
             <Button variant="ghost" size="icon" className="h-8 w-8" title="Export" onClick={() => setExportOpen(true)}>
               <Download className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleManualSave} disabled={saving}>
-              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Save
-            </Button>
+            {/* Save button — hidden for viewers */}
+            {canEdit && (
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleManualSave} disabled={saving}>
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Save
+              </Button>
+            )}
           </div>
         </div>
 
@@ -286,10 +299,13 @@ export function DocumentEditorPage() {
                 <textarea
                   ref={editorRef}
                   value={content}
-                  onChange={handleContentChange}
-                  placeholder="Start writing..."
-                  className="document-editor w-full min-h-[calc(100vh-200px)] resize-none bg-transparent outline-none text-base leading-relaxed"
-                  spellCheck
+                  onChange={canEdit ? handleContentChange : undefined}
+                  readOnly={!canEdit}
+                  placeholder={canEdit ? 'Start writing...' : 'You have read-only access to this document'}
+                  className={`document-editor w-full min-h-[calc(100vh-200px)] resize-none bg-transparent outline-none text-base leading-relaxed ${
+                    !canEdit ? 'cursor-default select-text opacity-80' : ''
+                  }`}
+                  spellCheck={canEdit}
                 />
               </motion.div>
             </div>
