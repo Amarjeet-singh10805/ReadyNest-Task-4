@@ -289,12 +289,12 @@ export function DocumentEditorPage() {
 
         {/* Editor area */}
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-auto">
-            <div className="mx-auto max-w-3xl px-8 py-10 min-h-full">
+          <div className="flex-1 overflow-auto flex flex-col">
+            <div className="mx-auto max-w-4xl px-8 py-6 h-full">
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="min-h-[calc(100vh-200px)]"
+                className="h-full"
               >
                 <textarea
                   ref={editorRef}
@@ -302,7 +302,7 @@ export function DocumentEditorPage() {
                   onChange={canEdit ? handleContentChange : undefined}
                   readOnly={!canEdit}
                   placeholder={canEdit ? 'Start writing...' : 'You have read-only access to this document'}
-                  className={`document-editor w-full min-h-[calc(100vh-200px)] resize-none bg-transparent outline-none text-base leading-relaxed ${
+                  className={`document-editor w-full h-full min-h-[calc(100vh-120px)] resize-none bg-transparent outline-none text-base leading-relaxed ${
                     !canEdit ? 'cursor-default select-text opacity-80' : ''
                   }`}
                   spellCheck={canEdit}
