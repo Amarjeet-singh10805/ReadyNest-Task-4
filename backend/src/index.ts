@@ -12,6 +12,7 @@ import routes from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { initSocket } from './socket';
 import { logger } from './utils/logger';
+import path from 'path';
 
 const app = express();
 const httpServer = createServer(app);
@@ -50,6 +51,15 @@ app.use('/api', routes);
 
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+
+// Serve frontend in production
+if (process.env.NODE_ENV === 'production') {
+  const frontendPath = path.join(__dirname, '../../frontend/dist');
+  app.use(express.static(frontendPath));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(frontendPath, 'index.html'));
+  });
+}
 
 // Error handler
 app.use(errorHandler);
