@@ -45,6 +45,7 @@ export function WorkspacePage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [newDocTitle, setNewDocTitle] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'EDITOR' | 'VIEWER'>('EDITOR');
   const [submitting, setSubmitting] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
@@ -117,15 +118,15 @@ export function WorkspacePage() {
     }
   };
 
-  const handleInvite = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleInvite = async () => {
     if (!inviteEmail.trim() || !id) return;
     setSubmitting(true);
     try {
-      await api.post(`/workspaces/${id}/invite`, { email: inviteEmail.trim(), role: 'EDITOR' });
+      await api.post(`/workspaces/${id}/invite`, { email: inviteEmail.trim(), role: inviteRole });
       setInviteOpen(false);
       setInviteEmail('');
-      toast({ title: 'Invitation sent' });
+      setInviteRole('EDITOR');
+      toast({ title: `Invited as ${inviteRole.toLowerCase()}` });
       loadWorkspace();
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to invite';
@@ -143,6 +144,27 @@ export function WorkspacePage() {
       toast({ title: 'Document deleted' });
     } catch {
       toast({ title: 'Failed to delete document', variant: 'destructive' });
+    }
+  };
+
+  const handleChangeRole = async (userId: string, role: 'EDITOR' | 'VIEWER') => {
+    try {
+      await api.patch(`/workspaces/${id}/members/${userId}/role`, { role });
+      toast({ title: `Role updated to ${role.toLowerCase()}` });
+      loadWorkspace();
+    } catch {
+      toast({ title: 'Failed to update role', variant: 'destructive' });
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!confirm('Remove this member from the workspace?')) return;
+    try {
+      await api.delete(`/workspaces/${id}/members/${userId}`);
+      toast({ title: 'Member removed' });
+      loadWorkspace();
+    } catch {
+      toast({ title: 'Failed to remove member', variant: 'destructive' });
     }
   };
 
@@ -177,11 +199,13 @@ export function WorkspacePage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {canEdit && (
+              {/* Only OWNER can invite */}
+              {isOwner && (
                 <Button size="sm" onClick={() => setInviteOpen(true)} variant="outline" className="gap-1.5">
                   <UserPlus className="h-3.5 w-3.5" /> Invite
                 </Button>
               )}
+              {/* OWNER and EDITOR can create docs */}
               {canEdit && (
                 <Button size="sm" onClick={() => setCreateDocOpen(true)} className="gap-1.5">
                   <Plus className="h-3.5 w-3.5" /> New doc
@@ -292,9 +316,36 @@ export function WorkspacePage() {
                         </div>
                         <p className="text-xs text-muted-foreground">{m.user.email}</p>
                       </div>
-                      <Badge variant={m.role === 'OWNER' ? 'default' : 'secondary'} className="text-xs">
-                        {m.role.toLowerCase()}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={m.role === 'OWNER' ? 'default' : 'secondary'} className="text-xs">
+                          {m.role.toLowerCase()}
+                        </Badge>
+                        {/* Owner can change role or remove non-owner members */}
+                        {isOwner && m.role !== 'OWNER' && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-6 w-6">
+                                <Settings className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleChangeRole(m.userId, 'EDITOR')}>
+                                Make Editor
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleChangeRole(m.userId, 'VIEWER')}>
+                                Make Viewer
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => handleRemoveMember(m.userId)}
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" /> Remove
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -345,29 +396,70 @@ export function WorkspacePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Invite dialog */}
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+      {/* Invite dialog with role selector */}
+      <Dialog open={inviteOpen} onOpenChange={(open) => {
+        setInviteOpen(open);
+        if (!open) { setInviteEmail(''); setInviteRole('EDITOR'); }
+      }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Invite member</DialogTitle>
             <DialogDescription>Invite a user by their email address</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleInvite} className="space-y-4">
+          <div className="space-y-4">
             <Input
               type="email"
               placeholder="colleague@example.com"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
               autoFocus
-              required
             />
+
+            {/* Role selector */}
+            <div>
+              <p className="text-sm font-medium mb-2">Select role</p>
+              <div className="flex gap-2">
+                {(['EDITOR', 'VIEWER'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setInviteRole(r)}
+                    className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      inviteRole === r
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <p className="text-sm font-medium">
+                      {r === 'EDITOR' ? '✏️ Editor' : '👁️ Viewer'}
+                    </p>
+                    <p className="text-xs mt-0.5 opacity-75">
+                      {r === 'EDITOR' ? 'Can create & edit docs' : 'Read only access'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="flex gap-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setInviteOpen(false)}>Cancel</Button>
-              <Button type="submit" className="flex-1" disabled={submitting}>
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Send invite
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setInviteOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={submitting || !inviteEmail.trim()}
+                onClick={handleInvite}
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Send invite
               </Button>
             </div>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
     </>
