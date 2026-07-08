@@ -149,7 +149,7 @@ export function WorkspacePage() {
 
   const handleChangeRole = async (userId: string, role: 'EDITOR' | 'VIEWER') => {
     try {
-      await api.patch(`/workspaces/${id}/members/${userId}/role`, { role });
+      await api.patch(`/workspaces/${id}/members/${userId}`, { role });
       toast({ title: `Role updated to ${role.toLowerCase()}` });
       loadWorkspace();
     } catch {
