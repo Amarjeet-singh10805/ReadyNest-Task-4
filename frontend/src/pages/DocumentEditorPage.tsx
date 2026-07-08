@@ -18,7 +18,7 @@ import api from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { toast } from '@/hooks/use-toast';
 import { ActiveUser, CursorUpdate, DocumentUpdate } from '@/types';
-import { generateColor } from '@/lib/utils';
+
 
 const AUTOSAVE_DELAY = 2000; // 2s debounce
 const VERSION_INTERVAL = 60000; // create version every 60s of edits
