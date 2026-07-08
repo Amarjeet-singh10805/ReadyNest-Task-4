@@ -6,7 +6,7 @@ import { getInitials, timeAgo, actionLabel } from '@/lib/utils';
 import { FileText, Edit3, Trash2, RotateCcw, Download, LogIn, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const actionIcons: Record<string, React.ReactNode> = {
+const actionIcons: Record<string, JSX.Element> = {
   CREATE: <FileText className="h-3 w-3" />,
   EDIT: <Edit3 className="h-3 w-3" />,
   DELETE: <Trash2 className="h-3 w-3" />,
